@@ -144,10 +144,9 @@ fi
 # 2. Setup chroot mounts
 echo "[*] Setting up chroot mounts..."
 mkdir -p "${ROOTFS_MNT}/proc" "${ROOTFS_MNT}/sys" "${ROOTFS_MNT}/dev/pts"
-mount --bind /proc    "${ROOTFS_MNT}/proc"
-mount --bind /sys     "${ROOTFS_MNT}/sys"
-mount --bind /dev     "${ROOTFS_MNT}/dev"
-mount --bind /dev/pts "${ROOTFS_MNT}/dev/pts"
+mount --rbind /proc    "${ROOTFS_MNT}/proc"
+mount --rbind /sys     "${ROOTFS_MNT}/sys"
+mount --rbind /dev     "${ROOTFS_MNT}/dev"
 rm -f "${ROOTFS_MNT}/etc/resolv.conf"
 cp /etc/resolv.conf "${ROOTFS_MNT}/etc/resolv.conf"
 
