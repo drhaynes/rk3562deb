@@ -685,6 +685,11 @@ create_image() {
     # - override: ROOTFS_IMAGE_SIZE=<size> (examples: 4G, 3584M)
     # The rootfs is expanded on first boot by expand-rootfs.service, so we keep
     # the build artifact compact while preserving enough installation headroom.
+    local SUDO_CMD=""
+    if [ "${EUID}" -ne 0 ]; then
+        SUDO_CMD="sudo "
+    fi
+
     local rootfs_image_size="${ROOTFS_IMAGE_SIZE:-auto}"
     if [ "${rootfs_image_size}" = "auto" ]; then
         local rootfs_used_bytes reserve_bytes min_bytes align_bytes size_bytes
@@ -697,7 +702,7 @@ create_image() {
         case "${min_mb}" in
             ''|*[!0-9]*) min_mb=2560 ;;
         esac
-        rootfs_used_bytes=$(sudo du -s -B1 "${OUT_DIR}/rootfs" | awk '{print $1}')
+        rootfs_used_bytes=$(${SUDO_CMD}du -s -B1 "${OUT_DIR}/rootfs" | awk '{print $1}')
         reserve_bytes=$((reserve_mb * 1024 * 1024))
         min_bytes=$((min_mb * 1024 * 1024))
         align_bytes=$((64 * 1024 * 1024))       # align to 64 MiB
@@ -715,10 +720,10 @@ create_image() {
 
     # NetworkManager refuses non-root-owned device plugins; fix ownership in
     # source rootfs before packing the final image.
-    sudo find "${OUT_DIR}/rootfs/usr/lib" -type f -path '*/NetworkManager/*/libnm-*.so' \
+    ${SUDO_CMD}find "${OUT_DIR}/rootfs/usr/lib" -type f -path '*/NetworkManager/*/libnm-*.so' \
         -exec chown root:root {} + 2>/dev/null || true
 
-    sudo mkfs.ext4 -F \
+    ${SUDO_CMD}mkfs.ext4 -F \
         -L rootfs \
         -U c0ffee11-2233-4455-6677-8899aabbccdd \
         -d "${OUT_DIR}/rootfs" \
@@ -727,9 +732,9 @@ create_image() {
         "${OUT_DIR}/rootfs.ext4"
 
     # Keep a bit more usable free space on small images.
-    sudo tune2fs -m 1 "${OUT_DIR}/rootfs.ext4" >/dev/null 2>&1 || true
+    ${SUDO_CMD}tune2fs -m 1 "${OUT_DIR}/rootfs.ext4" >/dev/null 2>&1 || true
 
-    if ! sudo e2fsck -pf "${OUT_DIR}/rootfs.ext4"; then
+    if ! ${SUDO_CMD}e2fsck -pf "${OUT_DIR}/rootfs.ext4"; then
         echo "[-] Error: rootfs.ext4 consistency check failed."
         exit 1
     fi
@@ -740,7 +745,7 @@ create_image() {
     local empty_rootpath="${OUT_DIR}/empty_rootpath"
     rm -rf "${empty_rootpath}"
     mkdir -p "${empty_rootpath}"
-    sudo genimage \
+    ${SUDO_CMD}genimage \
         --config "${ROOT_DIR}/genimage.cfg" \
         --rootpath "${empty_rootpath}" \
         --tmppath "${OUT_DIR}/tmp" \
