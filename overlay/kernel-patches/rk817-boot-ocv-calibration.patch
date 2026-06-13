@@ -20,8 +20,24 @@ index 75cf99f8d..c2d359b72 100644
  #define OCV_SAMP_MIN_MSK	0x0c
  #define OCV_SAMP_8MIN		(0x00 << 2)
  #define MINUTE(x)	\
-@@ -1766,16 +1775,33 @@ static void rk817_bat_init_dsoc_algorithm(struct rk817_battery_device *battery)
+@@ -1764,18 +1773,49 @@ static void rk817_bat_init_dsoc_algorithm(struct rk817_battery_device *battery)
+ 	    __func__, battery->sm_remain_cap, battery->smooth_soc);
+ }
  
++static int rk817_bat_get_ocv_voltage(struct rk817_battery_device *battery)
++{
++	int vol, val = 0;
++	u32 val_h = 0, val_l = 0;
++
++	regmap_read(battery->rk817->regmap, RK817_GAS_GAUGE_OCV_VOL_H, &val_h);
++	regmap_read(battery->rk817->regmap, RK817_GAS_GAUGE_OCV_VOL_L, &val_l);
++
++	val = (val_h << 8) | val_l;
++	vol = battery->voltage_k * val / 1000 + battery->voltage_b;
++
++	return vol;
++}
++
  static void rk817_bat_first_pwron(struct rk817_battery_device *battery)
  {
 -	battery->rsoc =
@@ -58,7 +74,7 @@ index 75cf99f8d..c2d359b72 100644
  
  	rk817_bat_update_qmax(battery, battery->qmax);
  	rk817_bat_save_fcc(battery, battery->fcc);
-@@ -1786,6 +1812,7 @@ static void rk817_bat_first_pwron(struct rk817_battery_device *battery)
+@@ -1786,6 +1826,7 @@ static void rk817_bat_first_pwron(struct rk817_battery_device *battery)
  static void rk817_bat_not_first_pwron(struct rk817_battery_device *battery)
  {
  	int now_cap, pre_soc, pre_cap;
@@ -66,7 +82,7 @@ index 75cf99f8d..c2d359b72 100644
  
  	battery->fcc = rk817_bat_get_fcc(battery);
  	pre_soc = rk817_bat_get_prev_dsoc(battery);
-@@ -1810,6 +1837,37 @@ static void rk817_bat_not_first_pwron(struct rk817_battery_device *battery)
+@@ -1810,6 +1851,37 @@ static void rk817_bat_not_first_pwron(struct rk817_battery_device *battery)
  		BAT_INFO("initialized yet..\n");
  	}
  

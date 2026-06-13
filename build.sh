@@ -25,7 +25,7 @@ KERNEL_DTB="rk3562-rk817-tablet-v10.dtb"
 KERNEL_DTB_PANFROST="rk3562-rk817-tablet-v10-panfrost.dtb"
 RKDEBIAN_DISPLAY_SERVER="${RKDEBIAN_DISPLAY_SERVER:-wayland}"
 RKDEBIAN_UI_SESSION="${RKDEBIAN_UI_SESSION:-phosh}"
-RKDEBIAN_GPU_STACK="${RKDEBIAN_GPU_STACK:-mali}"
+RKDEBIAN_GPU_STACK="${RKDEBIAN_GPU_STACK:-panfrost}"
 RKDEBIAN_CPU_GOVERNOR="${RKDEBIAN_CPU_GOVERNOR:-performance}"
 RKDEBIAN_FORCE_CLEAN_ROOTFS="${RKDEBIAN_FORCE_CLEAN_ROOTFS:-0}"
 
@@ -496,7 +496,7 @@ build_kernel() {
             echo "[*] RK817 DEV_OFF shutdown fix already present."
         else
             echo "[*] Applying RK817 DEV_OFF shutdown fix..."
-            if ! git apply --whitespace=nowarn "${rk817_dev_off_patch}"; then
+            if ! patch -p1 < "${rk817_dev_off_patch}"; then
                 echo "[-] Error: failed to apply RK817 DEV_OFF shutdown fix."
                 exit 1
             fi
@@ -512,7 +512,7 @@ build_kernel() {
             echo "[*] RK817 boot OCV calibration fix already present."
         else
             echo "[*] Applying RK817 boot OCV calibration fix..."
-            if ! git apply --whitespace=nowarn "${rk817_boot_ocv_patch}"; then
+            if ! patch -p1 < "${rk817_boot_ocv_patch}"; then
                 echo "[-] Error: failed to apply RK817 boot OCV calibration fix."
                 exit 1
             fi

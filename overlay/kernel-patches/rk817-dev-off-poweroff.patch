@@ -18,7 +18,7 @@ index d89f97913..b58d838b4 100644
  
  	/* close rtc int when power off */
  	regmap_update_bits(rk808->regmap,
-@@ -937,37 +943,37 @@ static int rk817_shutdown_prepare(struct sys_off_data *data)
+@@ -937,41 +943,35 @@ static int rk817_shutdown_prepare(struct sys_off_data *data)
  			   RK817_RTC_INT_REG,
  			   (0x3 << 2), (0x0 << 2));
  
@@ -29,13 +29,37 @@ index d89f97913..b58d838b4 100644
 -					 SLPPIN_NULL_FUN);
 -		if (ret)
 -			pr_err("shutdown: config SLPPIN_NULL_FUN error!\n");
- 
+-
 -		ret = regmap_update_bits(rk808->regmap,
 -					 RK817_SYS_CFG(3),
 -					 RK817_SLPPOL_MSK,
 -					 RK817_SLPPOL_H);
 -		if (ret)
 -			pr_err("shutdown: config RK817_SLPPOL_H error!\n");
+-
+-		ret = pinctrl_select_state(rk808->pins->p,
+-					   rk808->pins->power_off);
+-		if (ret)
+-			pr_info("%s:failed to activate pwroff state\n",
+-				__func__);
+-		ret = regmap_update_bits(rk808->regmap,
+-					 RK817_SYS_CFG(3),
+-					 RK817_SLPPIN_FUNC_MSK,
+-					 SLPPIN_DN_FUN);
+-		if (ret)
+-			pr_err("shutdown: config SLPPIN_DN_FUN error!\n");
+-	}
+-
+-	/* pmic sleep shutdown function */
+-	ret = regmap_update_bits(rk808->regmap,
+-				 RK817_SYS_CFG(3),
+-				 RK817_SLPPIN_FUNC_MSK, SLPPIN_DN_FUN);
+-	if (ret)
+-		dev_err(&rk808_i2c_client->dev, "Failed to shutdown device!\n");
+-	/* pmic need the SCL clock to synchronize register */
+-	mdelay(2);
+-	return ret;
++
 +	/*
 +	 * Use direct DEV_OFF on RK817 instead of SLPPIN_DN_FUN.
 +	 *
@@ -49,29 +73,15 @@ index d89f97913..b58d838b4 100644
 +			"shutdown: SYS_CFG3 read failed: %d\n", raw);
 +		return raw;
 +	}
- 
--		ret = pinctrl_select_state(rk808->pins->p,
--					   rk808->pins->power_off);
--		if (ret)
--			pr_info("%s:failed to activate pwroff state\n",
--				__func__);
++
 +	ret = i2c_smbus_write_byte_data(client, RK817_SYS_CFG(3),
 +					(u8)(raw | DEV_OFF));
 +	if (ret < 0) {
 +		dev_err(&client->dev,
 +			"shutdown: DEV_OFF write failed: %d\n", ret);
 +		return ret;
- 	}
- 
--	/* pmic sleep shutdown function */
--	ret = regmap_update_bits(rk808->regmap,
--				 RK817_SYS_CFG(3),
--				 RK817_SLPPIN_FUNC_MSK, SLPPIN_DN_FUN);
--	if (ret)
--		dev_err(&rk808_i2c_client->dev, "Failed to shutdown device!\n");
--	/* pmic need the SCL clock to synchronize register */
--	mdelay(2);
--	return ret;
++	}
++
 +	dev_info(&client->dev,
 +		 "shutdown: SYS_CFG3=0x%02x, wrote DEV_OFF\n", raw);
 +	/*
@@ -81,9 +91,7 @@ index d89f97913..b58d838b4 100644
 +	mdelay(3000);
 +	return 0;
  }
- 
- static void rk8xx_device_shutdown(void)
-@@ -1011,7 +1024,6 @@ static void (*pm_reboot)(void);
+@@ -1017,7 +1017,6 @@ static void (*pm_reboot)(void);
  
  static void rk8xx_syscore_shutdown(void)
  {
@@ -91,8 +99,7 @@ index d89f97913..b58d838b4 100644
  	struct rk808 *rk808 = i2c_get_clientdata(rk808_i2c_client);
  
  	if (!rk808) {
-@@ -1039,17 +1051,6 @@ static void rk8xx_syscore_shutdown(void)
- 	 * there are too many devices are competiting.
+@@ -1045,15 +1044,4 @@ static void rk8xx_syscore_shutdown(void)
  	 */
  	if (system_state == SYSTEM_POWER_OFF) {
 -		if (rk808->variant == RK809_ID || rk808->variant == RK817_ID) {
