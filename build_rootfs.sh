@@ -622,6 +622,13 @@ if [ "${RKDEBIAN_GPU_STACK}" = "panfrost" ]; then
           "${ROOTFS_MNT}/usr/lib/aarch64-linux-gnu/libmali-hook.so" \
           "${ROOTFS_MNT}/usr/lib/aarch64-linux-gnu/libmali-hook.so.1" \
           "${ROOTFS_MNT}/etc/ld.so.conf.d/00-aarch64-mali.conf"
+    
+    # RK3562 VOP2 display controller does not support AFBC.
+    # Force Panfrost to use linear buffers to prevent GTK/Wayland crashes.
+    if ! grep -q "PAN_MESA_DEBUG=noafbc" "${ROOTFS_MNT}/etc/environment"; then
+        echo "PAN_MESA_DEBUG=noafbc" >> "${ROOTFS_MNT}/etc/environment"
+    fi
+
     chroot "${ROOTFS_MNT}" ldconfig
 else
     # Mali userspace stack. Default is to keep vendor libgbm as shipped by the
@@ -4102,8 +4109,8 @@ chmod +x "${ROOTFS_MNT}/usr/local/sbin/rk-power-profile-sync.sh"
 cat > "${ROOTFS_MNT}/etc/systemd/system/rk-power-profile-sync.service" << 'RK_POWER_PROFILE_SYNC_UNIT'
 [Unit]
 Description=Sync CPU governor/frequency caps with Power Profiles mode
-After=power-profiles-daemon.service rk-power-tune.service
-Wants=power-profiles-daemon.service rk-power-tune.service
+After=rk-power-tune.service
+Wants=rk-power-tune.service
 
 [Service]
 Type=simple

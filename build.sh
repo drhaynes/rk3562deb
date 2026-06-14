@@ -519,6 +519,22 @@ build_kernel() {
         fi
     fi
 
+    # Panfrost RK3562 clock fix:
+    # ensure Panfrost enables all supplementary AXI/APB clocks defined in the DTS
+    # otherwise early GPU initialization causes a bus fault / black screen on boot.
+    local panfrost_clocks_patch="${ROOT_DIR}/overlay/kernel-patches/panfrost-rk3562-clocks.patch"
+    if [ -f "${panfrost_clocks_patch}" ]; then
+        if grep -q "extra_clocks" drivers/gpu/drm/panfrost/panfrost_device.c; then
+            echo "[*] Panfrost RK3562 clocks fix already present."
+        else
+            echo "[*] Applying Panfrost RK3562 clocks fix..."
+            if ! patch -p1 < "${panfrost_clocks_patch}"; then
+                echo "[-] Error: failed to apply Panfrost RK3562 clocks fix."
+                exit 1
+            fi
+        fi
+    fi
+
     # Use the configured defconfig, with a rockchip fallback if needed.
     if [ ! -f "arch/arm64/configs/${KERNEL_DEFCONFIG}" ]; then
         echo "Warning: ${KERNEL_DEFCONFIG} not found. Attempting rockchip_linux_defconfig..."

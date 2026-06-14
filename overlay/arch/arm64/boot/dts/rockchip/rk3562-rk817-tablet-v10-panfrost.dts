@@ -12,6 +12,7 @@
 #include <dt-bindings/sensor-dev.h>
 #include <dt-bindings/display/drm_mipi_dsi.h>
 #include "dt-bindings/usb/pd.h"
+#include <dt-bindings/power/rk3562-power.h>
 #include "rk3562.dtsi"
 #include "rk3562-android.dtsi"
 #include "rk3562-rk817-tablet-camera.dtsi"
@@ -167,6 +168,7 @@
 		regulator-min-microvolt = <800000>;
 		regulator-max-microvolt = <1100000>;
 		regulator-init-microvolt = <900000>;
+		regulator-always-on;
 		/* removed regulator-always-on: Mali driver enables on demand */
 		regulator-boot-on;
 		regulator-settling-time-up-us = <250>;
@@ -920,7 +922,7 @@
 };
 
 &usbdrd_dwc3 {
-	dr_mode = "otg";
+	dr_mode = "host";
 	status = "okay";
 	maximum-speed = "high-speed";
 	phys = <&u2phy_otg>;
