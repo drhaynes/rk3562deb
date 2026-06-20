@@ -199,6 +199,7 @@ apt-get install -y sudo curl wget nano vim openssh-server network-manager wpasup
     pipewire-libcamera libcamera-ipa libcamera-v4l2 \
     gedit \
     zram-tools \
+    plymouth plymouth-themes \
     libegl1 libgles2 libgbm1 libva2 libva-drm2 ffmpeg dbus \
     udev evtest pciutils usbutils \
     xinput libinput-tools \
@@ -477,6 +478,18 @@ if [ -f /usr/share/applications/firefox-esr.desktop ]; then
     sed -i -E 's|^Exec=.*firefox-esr.*$|Exec=env -u MOZ_X11_EGL MOZ_DISABLE_RDD_SANDBOX=1 MOZ_ENABLE_WAYLAND=1 MOZ_WAYLAND_USE_VAAPI=1 MOZ_DRM_DEVICE=/dev/dri/renderD128 LIBVA_DRIVER_NAME=rockchip /usr/lib/firefox-esr/firefox-esr %u|' \
         /usr/share/applications/firefox-esr.desktop || true
 fi
+
+# Configure a basic Plymouth theme first; overridden later by rkdebian.
+if command -v plymouth-set-default-theme >/dev/null 2>&1; then
+    plymouth-set-default-theme spinner || true
+fi
+# Some Plymouth units are static on Debian and emit warnings when enabled.
+# Enable only units that actually advertise an [Install] section.
+for ply_unit in plymouth-start.service plymouth-quit.service plymouth-quit-wait.service; do
+    if systemctl cat "${ply_unit}" 2>/dev/null | grep -q '^\[Install\]'; then
+        systemctl enable "${ply_unit}" >/dev/null 2>&1 || true
+    fi
+done
 
 
 CHROOT_EOF
@@ -952,6 +965,118 @@ cat > "${ROOTFS_MNT}/usr/lib/firefox-esr/distribution/policies.json" << 'FIREFOX
   }
 }
 FIREFOX_POLICIES
+
+# Install custom Plymouth boot splash theme.
+echo "[*] Installing custom Plymouth boot splash..."
+THEME_DIR="${ROOTFS_MNT}/usr/share/plymouth/themes/rkdebian"
+mkdir -p "${THEME_DIR}"
+
+# dot.png - 14x14 soft-edged white circle for the loading dots.
+python3 - "${THEME_DIR}/dot.png" << 'PYGEN'
+import sys, zlib, struct
+
+def write_png(path, w, h, rows_rgba):
+    def chunk(tag, data):
+        crc = zlib.crc32(tag + data) & 0xffffffff
+        return struct.pack('>I', len(data)) + tag + data + struct.pack('>I', crc)
+    raw = b''.join(b'\x00' + bytes(r) for r in rows_rgba)
+    with open(path, 'wb') as f:
+        f.write(b'\x89PNG\r\n\x1a\n')
+        f.write(chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 6, 0, 0, 0)))
+        f.write(chunk(b'IDAT', zlib.compress(raw, 9)))
+        f.write(chunk(b'IEND', b''))
+
+W = H = 14
+cx = cy = W / 2.0
+r = W / 2.0 - 1.0
+rows = []
+for y in range(H):
+    row = []
+    for x in range(W):
+        d = ((x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2) ** 0.5
+        alpha = min(255, max(0, int((r - d) * 90)))
+        row += [255, 255, 255, alpha]
+    rows.append(row)
+write_png(sys.argv[1], W, H, rows)
+PYGEN
+
+# splash.png - custom boot logo from repository root.
+if [ ! -f "${ROOT_DIR}/splash.png" ]; then
+    echo "[-] Error: missing ${ROOT_DIR}/splash.png (required for Plymouth logo)."
+    exit 1
+fi
+install -m 0644 "${ROOT_DIR}/splash.png" "${THEME_DIR}/splash.png"
+mkdir -p "${ROOTFS_MNT}/usr/share/backgrounds/rkdebian"
+install -m 0644 "${ROOT_DIR}/splash.png" \
+    "${ROOTFS_MNT}/usr/share/backgrounds/rkdebian/splash.png"
+
+# Theme descriptor.
+cat > "${THEME_DIR}/rkdebian.plymouth" << 'PLYMOUTH_DESC'
+[Plymouth Theme]
+Name=rkdebian
+Description=RK3562 Debian boot splash
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/rkdebian
+ScriptFile=/usr/share/plymouth/themes/rkdebian/rkdebian.script
+PLYMOUTH_DESC
+
+# Animation script.
+cat > "${THEME_DIR}/rkdebian.script" << 'PLYMOUTH_SCRIPT'
+W = Window.GetWidth();
+H = Window.GetHeight();
+
+# Solid black background
+Window.SetBackgroundTopColor(0.00, 0.00, 0.00);
+Window.SetBackgroundBottomColor(0.00, 0.00, 0.00);
+
+# Logo
+logo_base = Image("splash.png");
+logo_scale_w = (W * 0.78) / logo_base.GetWidth();
+logo_scale_h = (H * 0.45) / logo_base.GetHeight();
+logo_scale = Math.Min(logo_scale_w, logo_scale_h);
+if (logo_scale > 1.0) logo_scale = 1.0;
+logo = logo_base.Scale(logo_base.GetWidth() * logo_scale,
+                       logo_base.GetHeight() * logo_scale);
+logo_spr = Sprite();
+logo_spr.SetImage(logo);
+logo_spr.SetX(Math.Int(W / 2 - logo.GetWidth() / 2));
+logo_spr.SetY(Math.Int(H * 0.18));
+
+# Pulsing dot loader (5 dots, wave ripple)
+N = 5;
+STEP = 22;
+DOT_Y = Math.Int(H * 0.73);
+ORIGIN = Math.Int(W / 2 - (N - 1) * STEP / 2);
+
+dot_img = Image("dot.png");
+for (i = 0; i < N; i++) {
+    dot[i] = Sprite();
+    dot[i].SetImage(dot_img);
+    dot[i].SetX(ORIGIN + i * STEP - Math.Int(dot_img.GetWidth() / 2));
+    dot[i].SetY(DOT_Y);
+    dot[i].SetOpacity(0.15);
+}
+
+tick = 0;
+fun animate() {
+    tick++;
+    peak = Math.Int(tick / 7) % N;
+    for (i = 0; i < N; i++) {
+        diff = i - peak;
+        if (diff < 0) diff = -diff;
+        opacity = 1.0 - diff * 0.25;
+        if (opacity < 0.10) opacity = 0.10;
+        dot[i].SetOpacity(opacity);
+    }
+}
+Plymouth.SetRefreshFunction(animate);
+PLYMOUTH_SCRIPT
+
+# Activate the custom theme.
+chroot "${ROOTFS_MNT}" plymouth-set-default-theme rkdebian 2>/dev/null || \
+    echo "[!] Warning: could not set Plymouth theme; 'spinner' will be used"
 
 
 # Add Chromium hardware acceleration flags.
