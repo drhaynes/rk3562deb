@@ -491,6 +491,13 @@ for ply_unit in plymouth-start.service plymouth-quit.service plymouth-quit-wait.
     fi
 done
 
+# Show splash immediately on fast-booting RK3562 images.
+mkdir -p /etc/plymouth
+cat > /etc/plymouth/plymouthd.conf << 'PLYMOUTHD_CONF'
+[Daemon]
+ShowDelay=0
+PLYMOUTHD_CONF
+
 
 CHROOT_EOF
 
@@ -970,35 +977,7 @@ FIREFOX_POLICIES
 echo "[*] Installing custom Plymouth boot splash..."
 THEME_DIR="${ROOTFS_MNT}/usr/share/plymouth/themes/rkdebian"
 mkdir -p "${THEME_DIR}"
-
-# dot.png - 14x14 soft-edged white circle for the loading dots.
-python3 - "${THEME_DIR}/dot.png" << 'PYGEN'
-import sys, zlib, struct
-
-def write_png(path, w, h, rows_rgba):
-    def chunk(tag, data):
-        crc = zlib.crc32(tag + data) & 0xffffffff
-        return struct.pack('>I', len(data)) + tag + data + struct.pack('>I', crc)
-    raw = b''.join(b'\x00' + bytes(r) for r in rows_rgba)
-    with open(path, 'wb') as f:
-        f.write(b'\x89PNG\r\n\x1a\n')
-        f.write(chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 6, 0, 0, 0)))
-        f.write(chunk(b'IDAT', zlib.compress(raw, 9)))
-        f.write(chunk(b'IEND', b''))
-
-W = H = 14
-cx = cy = W / 2.0
-r = W / 2.0 - 1.0
-rows = []
-for y in range(H):
-    row = []
-    for x in range(W):
-        d = ((x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2) ** 0.5
-        alpha = min(255, max(0, int((r - d) * 90)))
-        row += [255, 255, 255, alpha]
-    rows.append(row)
-write_png(sys.argv[1], W, H, rows)
-PYGEN
+rm -f "${THEME_DIR}/dot.png"
 
 # splash.png - custom boot logo from repository root.
 if [ ! -f "${ROOT_DIR}/splash.png" ]; then
@@ -1022,7 +1001,7 @@ ImageDir=/usr/share/plymouth/themes/rkdebian
 ScriptFile=/usr/share/plymouth/themes/rkdebian/rkdebian.script
 PLYMOUTH_DESC
 
-# Animation script.
+# Static script: black background + centered logo.
 cat > "${THEME_DIR}/rkdebian.script" << 'PLYMOUTH_SCRIPT'
 W = Window.GetWidth();
 H = Window.GetHeight();
@@ -1031,10 +1010,13 @@ H = Window.GetHeight();
 Window.SetBackgroundTopColor(0.00, 0.00, 0.00);
 Window.SetBackgroundBottomColor(0.00, 0.00, 0.00);
 
-# Logo
+# Centered logo
 logo_base = Image("splash.png");
+if (W < H) {
+    logo_base = logo_base.Rotate(90);
+}
 logo_scale_w = (W * 0.78) / logo_base.GetWidth();
-logo_scale_h = (H * 0.45) / logo_base.GetHeight();
+logo_scale_h = (H * 0.78) / logo_base.GetHeight();
 logo_scale = Math.Min(logo_scale_w, logo_scale_h);
 if (logo_scale > 1.0) logo_scale = 1.0;
 logo = logo_base.Scale(logo_base.GetWidth() * logo_scale,
@@ -1042,36 +1024,7 @@ logo = logo_base.Scale(logo_base.GetWidth() * logo_scale,
 logo_spr = Sprite();
 logo_spr.SetImage(logo);
 logo_spr.SetX(Math.Int(W / 2 - logo.GetWidth() / 2));
-logo_spr.SetY(Math.Int(H * 0.18));
-
-# Pulsing dot loader (5 dots, wave ripple)
-N = 5;
-STEP = 22;
-DOT_Y = Math.Int(H * 0.73);
-ORIGIN = Math.Int(W / 2 - (N - 1) * STEP / 2);
-
-dot_img = Image("dot.png");
-for (i = 0; i < N; i++) {
-    dot[i] = Sprite();
-    dot[i].SetImage(dot_img);
-    dot[i].SetX(ORIGIN + i * STEP - Math.Int(dot_img.GetWidth() / 2));
-    dot[i].SetY(DOT_Y);
-    dot[i].SetOpacity(0.15);
-}
-
-tick = 0;
-fun animate() {
-    tick++;
-    peak = Math.Int(tick / 7) % N;
-    for (i = 0; i < N; i++) {
-        diff = i - peak;
-        if (diff < 0) diff = -diff;
-        opacity = 1.0 - diff * 0.25;
-        if (opacity < 0.10) opacity = 0.10;
-        dot[i].SetOpacity(opacity);
-    }
-}
-Plymouth.SetRefreshFunction(animate);
+logo_spr.SetY(Math.Int(H / 2 - logo.GetHeight() / 2));
 PLYMOUTH_SCRIPT
 
 # Activate the custom theme.
@@ -1233,11 +1186,17 @@ session-wrapper=/etc/X11/Xsession
 
 [VNCServer]
 LIGHTDM_CONF
-mkdir -p "${ROOTFS_MNT}/etc/X11" "${ROOTFS_MNT}/etc/systemd/system"
+mkdir -p "${ROOTFS_MNT}/etc/X11" "${ROOTFS_MNT}/etc/systemd/system" \
+         "${ROOTFS_MNT}/etc/systemd/system/lightdm.service.d"
 printf '%s\n' '/usr/sbin/lightdm' > "${ROOTFS_MNT}/etc/X11/default-display-manager"
 ln -sfn /lib/systemd/system/lightdm.service "${ROOTFS_MNT}/etc/systemd/system/display-manager.service"
+cat > "${ROOTFS_MNT}/etc/systemd/system/lightdm.service.d/plymouth-retain.conf" << 'LIGHTDM_PLYMOUTH'
+[Service]
+ExecStartPre=-/usr/bin/plymouth quit --retain-splash
+LIGHTDM_PLYMOUTH
 # Avoid a tty1 text login flicker between boot logo and GUI.
 ln -sfn /dev/null "${ROOTFS_MNT}/etc/systemd/system/getty@tty1.service"
+rm -f "${ROOTFS_MNT}/etc/systemd/system/getty.target.wants/getty@tty1.service"
 
 
 
